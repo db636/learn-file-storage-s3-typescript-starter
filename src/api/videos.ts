@@ -4,6 +4,7 @@ import { type BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from './errors';
 import { getBearerToken, validateJWT } from '../auth';
 import { getVideo, updateVideo } from '../db/videos';
+import { getVideoAspectRatio } from './assets';
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     const { videoId } = req.params as { videoId?: string };
@@ -37,7 +38,6 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     }
   
     const mediaType = file.type;
-    console.log('mediatype ', mediaType)
     if (!mediaType) {
       throw new BadRequestError("Missing Content-Type for video");
     }
@@ -49,15 +49,23 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     const fileName = `${videoId}.mp4`;
     await Bun.write(fileName, file);
 
-    const s3file = cfg.s3Client.file(fileName);
-    await s3file.write(Bun.file(fileName));
-    console.log(s3file.name)
+    try {
+      let ratio = 'other';
+      try {
+        ratio = await getVideoAspectRatio(fileName)
+      } catch (e) {
+        console.log("Error happened during getVideoAspectRatio: ", e);
+      }
 
-    await Bun.file(fileName).delete();
+      const key = `${ratio}/${fileName}`;
+      const s3file = cfg.s3Client.file(key);
+      await s3file.write(Bun.file(fileName));
 
-    // const urlPath = getAssetURL(cfg, fileName);
-    video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${s3file.name}`;
-    updateVideo(cfg.db, video);
+      video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${key}`;
+      updateVideo(cfg.db, video);
+    } finally {
+      await Bun.file(fileName).delete();
+    }
 
     return respondWithJSON(200, video);
 }
