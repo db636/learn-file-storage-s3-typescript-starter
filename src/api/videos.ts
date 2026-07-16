@@ -4,7 +4,7 @@ import { type BunRequest } from "bun";
 import { BadRequestError, NotFoundError, UserForbiddenError } from './errors';
 import { getBearerToken, validateJWT } from '../auth';
 import { getVideo, updateVideo } from '../db/videos';
-import { getVideoAspectRatio } from './assets';
+import { getVideoAspectRatio, processVideoForFastStart } from './assets';
 
 export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
     const { videoId } = req.params as { videoId?: string };
@@ -46,8 +46,10 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
       throw new BadRequestError("mp4 only allowed");
     }
 
-    const fileName = `${videoId}.mp4`;
-    await Bun.write(fileName, file);
+    const rawFileName = `${videoId}.mp4`;
+    await Bun.write(rawFileName, file);
+
+    const fileName = await processVideoForFastStart(rawFileName);
 
     try {
       let ratio = 'other';
@@ -64,7 +66,10 @@ export async function handlerUploadVideo(cfg: ApiConfig, req: BunRequest) {
       video.videoURL = `https://${cfg.s3Bucket}.s3.${cfg.s3Region}.amazonaws.com/${key}`;
       updateVideo(cfg.db, video);
     } finally {
-      await Bun.file(fileName).delete();
+      await Bun.file(rawFileName).delete();
+      if (fileName) {
+        await Bun.file(fileName).delete();
+      }
     }
 
     return respondWithJSON(200, video);

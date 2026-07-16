@@ -61,3 +61,21 @@ export async function getVideoAspectRatio(filePath: string | undefined) {
     throw new Error(`Something went wrong with ffprobe for ${filePath}`);
   }
 }
+
+export async function processVideoForFastStart(inputFilePath: string) {
+  const outputFilePath = `${inputFilePath}.processed`;
+
+  const proc = Bun.spawn(["ffmpeg", "-i", inputFilePath, "-movflags", "faststart", "-map_metadata", "0", "-codec", "copy", "-f", "mp4", outputFilePath], {
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+
+  const stderrText = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+
+  if (exitCode !== 0) {
+    throw new Error(`Something went wrong with ffmpeg for ${inputFilePath}: ${stderrText}`);
+  }
+
+  return outputFilePath;
+}
